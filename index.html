@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Staking DApp - Testnet</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f7f7f7;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h2, h3 { color: #333; }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      font-size: 16px;
+    }
+    #stakeAmount {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2>🚀 Staking DApp (Testnet)</h2>
+
+  <button onclick="connectWallet()">🔌 Connect Wallet</button>
+  <p id="status">Status: Not connected</p>
+
+  <h3>💰 Stake Token</h3>
+  <input id="stakeInput" placeholder="Amount to stake" />
+  <button onclick="stake()">Stake</button>
+
+  <h3>📤 Unstake Token</h3>
+  <button onclick="unstake()">Unstake All</button>
+
+  <p id="stakeAmount">Your Stake: -</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script>
+    // Ganti dengan alamat kontrak Anda di testnet
+    const CONTRACT_ADDRESS = "0x78e27411DeA42F112551D2A99153A1cc1408faB5"; // Staking contract
+    const TOKEN_ADDRESS = "0x1f3Af095CDa17d63cad238358837321e95FC5915"; // BEP20 token
+
+    // ABI staking contract
+    const STAKING_ABI = [
+      {
+        "inputs": [{ "internalType": "address", "name": "_token", "type": "address" }],
+        "stateMutability": "nonpayable", "type": "constructor"
+      },
+      {
+        "inputs": [],
+        "name": "unstake",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [{ "internalType": "uint256", "name": "amount", "type": "uint256" }],
+        "name": "stake",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [{ "internalType": "address", "name": "user", "type": "address" }],
+        "name": "getStake",
+        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+        "stateMutability": "view",
+        "type": "function"
+      }
+    ];
+
+    // ABI minimal untuk BEP20/ERC20 token
+    const TOKEN_ABI = [
+      {
+        "constant": false,
+        "inputs": [
+          { "name": "_spender", "type": "address" },
+          { "name": "_value", "type": "uint256" }
+        ],
+        "name": "approve",
+        "outputs": [{ "name": "", "type": "bool" }],
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [{ "name": "account", "type": "address" }],
+        "name": "balanceOf",
+        "outputs": [{ "name": "", "type": "uint256" }],
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{ "name": "", "type": "uint8" }],
+        "type": "function"
+      },
+      {
+        "constant": true,
+        "inputs": [
+          { "name": "owner", "type": "address" },
+          { "name": "spender", "type": "address" }
+        ],
+        "name": "allowance",
+        "outputs": [{ "name": "", "type": "uint256" }],
+        "type": "function"
+      }
+    ];
+
+    let provider, signer, userAddress, stakingContract, tokenContract;
+
+    async function connectWallet() {
+      if (!window.ethereum) {
+        alert("MetaMask tidak ditemukan. Silakan pasang MetaMask terlebih dahulu.");
+        return;
+      }
+
+      try {
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = provider.getSigner();
+        userAddress = await signer.getAddress();
+        stakingContract = new ethers.Contract(CONTRACT_ADDRESS, STAKING_ABI, signer);
+        tokenContract = new ethers.Contract(TOKEN_ADDRESS, TOKEN_ABI, signer);
+        document.getElementById("status").innerText = "Connected: " + userAddress;
+        updateStakeAmount();
+      } catch (err) {
+        console.error("Gagal connect:", err);
+        alert("❌ Gagal connect wallet.");
+      }
+    }
+
+    async function stake() {
+      const input = document.getElementById("stakeInput").value;
+      const amount = parseFloat(input);
+      if (isNaN(amount) || amount <= 0) {
+        alert("Masukkan jumlah yang valid.");
+        return;
+      }
+
+      try {
+        const decimals = await tokenContract.decimals();
+        const amountInWei = ethers.utils.parseUnits(amount.toString(), decimals);
+
+        const allowance = await tokenContract.allowance(userAddress, CONTRACT_ADDRESS);
+        if (allowance.lt(amountInWei)) {
+          const approveTx = await tokenContract.approve(CONTRACT_ADDRESS, amountInWei);
+          await approveTx.wait();
+        }
+
+        const tx = await stakingContract.stake(amountInWei);
+        await tx.wait();
+
+        alert("✅ Stake berhasil!");
+        updateStakeAmount();
+      } catch (err) {
+        console.error("Stake error:", err);
+        alert("❌ Gagal stake.");
+      }
+    }
+
+    async function unstake() {
+      try {
+        const tx = await stakingContract.unstake();
+        await tx.wait();
+        alert("✅ Unstake berhasil!");
+        updateStakeAmount();
+      } catch (err) {
+        console.error("Unstake error:", err);
+        alert("❌ Gagal unstake.");
+      }
+    }
+
+    async function updateStakeAmount() {
+      try {
+        const stake = await stakingContract.getStake(userAddress);
+        const decimals = await tokenContract.decimals();
+        const formatted = ethers.utils.formatUnits(stake, decimals);
+        document.getElementById("stakeAmount").innerText = "Your Stake: " + formatted;
+      } catch (err) {
+        console.error("Update stake error:", err);
+      }
+    }
+  </script>
+</body>
+</html>
